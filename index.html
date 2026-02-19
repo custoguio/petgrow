@@ -31,13 +31,29 @@ input,textarea,select{width:100%;padding:8px;border-radius:10px;border:2px solid
 .fill{height:100%;width:0}
 .m1{background:#FF661A}.m2{background:#2ecc71}.m3{background:#3498db}.m4{background:#9b59b6}
 .metric-head{display:flex;justify-content:space-between;font-size:13px;font-weight:700}
-.metric-actions{display:flex;gap:8px;margin-top:6px}
-.metric-actions button{flex:1;height:36px;font-size:13px;font-weight:700;border-radius:10px;display:flex;align-items:center;justify-content:center}
-.btn-plus{background:var(--green)}
-.btn-minus{background:var(--red)}
 .history-item{border-bottom:1px solid #FF661A;padding:8px 0}
 .badge{display:inline-block;padding:2px 6px;border-radius:6px;font-size:11px;margin-left:6px;color:#fff}
 .pos{background:#2ecc71}.neg{background:#ff5252}
+
+@media print{
+  html, body{height:auto;overflow:visible !important;print-color-adjust: exact;-webkit-print-color-adjust: exact}
+  body *{visibility:hidden}
+  #reportRoot, #reportRoot *{visibility:visible}
+  #reportRoot{position:relative;left:0;top:0;width:100%;background:#fff;padding:24px}
+  .r-section{page-break-inside: avoid;break-inside: avoid}
+  .r-hitem{border-bottom:1px solid #ddd;padding:10px 0;page-break-inside: avoid;break-inside: avoid}
+  .r-hitem:nth-child(18){page-break-after: always;break-after: page}
+  .r-header{display:flex;align-items:center;gap:12px;border-bottom:3px solid var(--orange);padding-bottom:10px;margin-bottom:16px}
+  .r-title{font-size:22px;font-weight:800;color:#333}
+  .r-sub{font-size:13px;color:#666}
+  .r-bars .r-row{margin:12px 0;page-break-inside: avoid}
+  .r-bar{height:14px;border-radius:8px;background:#eee;overflow:hidden}
+  .r-fill{height:100%}
+  .r-fill.m1{background:#FF661A}
+  .r-fill.m2{background:#2ecc71}
+  .r-fill.m3{background:#3498db}
+  .r-fill.m4{background:#9b59b6}
+}
 </style>
 </head>
 <body>
@@ -91,11 +107,15 @@ input,textarea,select{width:100%;padding:8px;border-radius:10px;border:2px solid
 <select id="histType">
 <option value="pos">Positivo</option>
 <option value="neg">Negativo</option>
+<option value="carta">Carta de correção (-4)</option>
+<option value="advert">Advertência (-6)</option>
+<option value="susp">Suspensão (-8)</option>
+<option value="falta">Falta (-8)</option>
 </select>
 <label>Descrição</label>
 <textarea id="histText"></textarea>
 <div class="actions">
-<button class="btn-open" onclick="addHistory()">Salvar</button>
+<button id="histSaveBtn" class="btn-open" onclick="addHistory()">Salvar</button>
 <button class="btn-close" onclick="closeHistory()">Fechar</button>
 </div>
 <h3 style="margin-top:14px">Registros</h3>
@@ -118,6 +138,7 @@ input,textarea,select{width:100%;padding:8px;border-radius:10px;border:2px solid
 <script>
 let colaboradores=JSON.parse(localStorage.getItem('pg_colabs')||'[]');
 let current=null;
+let editingIndex=null;
 
 function persist(){localStorage.setItem('pg_colabs',JSON.stringify(colaboradores));}
 
@@ -132,10 +153,12 @@ div.innerHTML=`<h3>${c.nome}</h3>
 <div class='actions'>
 <button class='btn-open'>Perfil</button>
 <button class='btn-hist'>Histórico</button>
+<button class='btn-open btn-report'>Relatório</button>
 </div>`;
-const [b1,b2]=div.querySelectorAll('button');
-b1.onclick=()=>openProfile(c.id);
-b2.onclick=()=>{current=c.id;openHistory();};
+const [b1,b2,b3]=div.querySelectorAll('button');
+  b1.onclick=()=>openProfile(c.id);
+  b2.onclick=()=>{current=c.id;openHistory();};
+  b3.onclick=()=>generateReport(c.id);
 box.appendChild(div);
 });}
 
@@ -145,9 +168,44 @@ function closeAdd(){addModal.style.display='none';}
 function saveColab(){
 if(!c_nome.value.trim()) return alert('Informe o nome');
 const c={id:Date.now().toString(),nome:c_nome.value,cargo:c_cargo.value,lotacao:c_lotacao.value,data:c_data.value,metrics:{m1:50,m2:50,m3:50,m4:50}};
-colaboradores.push(c);persist();closeAdd();render();}
+colaboradores.push(c);persist();closeAdd();render();
+}
 
-function openProfile(id){current=id;profileModal.style.display='flex';const c=colaboradores.find(x=>x.id===id);p_nome.textContent=c.nome;drawMetrics(c);} 
+function generateReport(id){
+  const c=colaboradores.find(x=>x.id===id);
+  if(!c) return;
+  recalcMetrics(id);
+  const h=getHistFor(id);
+  const label=t=>({pos:'Positivo',neg:'Negativo',carta:'Carta de correção',advert:'Advertência',susp:'Suspensão',falta:'Falta'})[t]||t;
+  const today=new Date().toLocaleDateString();
+  const bars=(key,name)=>`<div class='r-row'><div style='display:flex;justify-content:space-between;font-weight:700'><span>${name}</span><span>${c.metrics[key]}%</span></div><div class='r-bar'><div class='r-fill ${key}' style='width:${c.metrics[key]}%'></div></div></div>`;
+  const histHtml=h.map(x=>`<div class='r-hitem'><b>${x.d}</b> <span class='r-badge ${x.type==='pos'?'r-pos':'r-neg'}'>${label(x.type)}</span><br><i>${areaName(x.area)}</i><br>${x.t}</div>`).join('')||'<div class="r-sub">Sem registros no período.</div>';
+  const html=`
+  <div class='r-header'>
+    <img src='https://play-lh.googleusercontent.com/R2qRv_VzzwD2k_3r9TMpZEa0N15JypDd7wjzsy4Mu5jmerILQxGqwM_ifwobN6VtBY0' style='height:42px'>
+    <div>
+      <div class='r-title'>Relatório de Desempenho</div>
+      <div class='r-sub'>${c.nome} • ${c.cargo||''} • ${c.lotacao||''} — Emitido em ${today}</div>
+    </div>
+  </div>
+  <div class='r-section r-bars'>
+    ${bars('m1','Atendimento')}
+    ${bars('m2','Colaboração')}
+    ${bars('m3','Responsabilidade')}
+    ${bars('m4','Conhecimento')}
+  </div>
+  <div class='r-section'>
+    <h3>Histórico</h3>
+    ${histHtml}
+  </div>`;
+  const root=document.getElementById('reportRoot');
+  root.innerHTML=html;
+  root.style.display='block';
+  window.onafterprint=()=>{root.style.display='none';};
+  setTimeout(()=>{window.print();},50);
+}
+
+function openProfile(id){current=id;profileModal.style.display='flex';const c=colaboradores.find(x=>x.id===id);p_nome.textContent=c.nome;recalcMetrics(id);drawMetrics(c);} 
 function closeProfile(){profileModal.style.display='none';}
 
 function drawMetrics(c){
@@ -159,34 +217,96 @@ const m=document.createElement('div');
 m.className='metric';
 m.innerHTML=`<div class='metric-head'><span>${titles[i]}</span><span>${v}%</span></div>
 <div class='bar'><div class='fill m${i+1}' style='width:${v}%'></div></div>
-<div class='metric-actions'>
-<button class='btn-plus'>+2</button>
-<button class='btn-minus'>-2</button></div>`;
-const [plus,minus]=m.querySelectorAll('button');
-plus.onclick=()=>adj(key,2);
-minus.onclick=()=>adj(key,-2);
+<div style="height:8px"></div>`;
 metrics.appendChild(m);
 });}
 
-function adj(k,val){const c=colaboradores.find(x=>x.id===current);c.metrics[k]=Math.max(0,Math.min(100,c.metrics[k]+val));persist();drawMetrics(c);} 
+function clamp(v){return Math.max(0,Math.min(100,v));}
+
+function getHistFor(id){return JSON.parse(localStorage.getItem('pg_hist_'+id)||'[]');}
+function getHist(){return getHistFor(current);} 
+function setHist(v){localStorage.setItem('pg_hist_'+current,JSON.stringify(v));}
+
+function impactValue(type){
+switch(type){
+case 'pos': return 2;
+case 'neg': return -2;
+case 'carta': return -4;
+case 'advert': return -6;
+case 'susp': return -8;
+case 'falta': return -8;
+default: return 0;
+}}
+
+function recalcMetrics(id){
+const c=colaboradores.find(x=>x.id===id);
+if(!c) return;
+let base={m1:50,m2:50,m3:50,m4:50};
+const h=getHistFor(id);
+h.forEach(x=>{base[x.area]=clamp(base[x.area]+impactValue(x.type));});
+c.metrics=base;persist();
+if(current===id && profileModal.style.display==='flex') drawMetrics(c);
+}
 
 // HISTORY
-function openHistory(){histModal.style.display='flex';renderHist();}
+function openHistory(){histModal.style.display='flex';editingIndex=null;histSaveBtn.textContent='Salvar';renderHist();}
 function closeHistory(){histModal.style.display='none';}
-function getHist(){return JSON.parse(localStorage.getItem('pg_hist_'+current)||'[]');}
-function setHist(v){localStorage.setItem('pg_hist_'+current,JSON.stringify(v));}
+
 function addHistory(){
-const t=histText.value.trim(); if(!t) return alert('Descreva o ocorrido');
-const area=histArea.value; const type=histType.value;
-const h=getHist(); h.unshift({t,d:new Date().toLocaleString(),area,type}); setHist(h);
-// impacta automaticamente a barra
-const impact= type==='pos'?2:-2; adj(area,impact);
-histText.value=''; renderHist();
+const t=histText.value.trim();
+if(!t) return alert('Descreva o ocorrido');
+
+const area=histArea.value;
+const type=histType.value;
+let h=getHist();
+
+if(editingIndex===null){
+h.unshift({t,d:new Date().toLocaleString(),area,type});
+}else{
+h[editingIndex]={...h[editingIndex],t,area,type};
+editingIndex=null;
+histSaveBtn.textContent='Salvar';
 }
+
+setHist(h);
+recalcMetrics(current);
+histText.value='';
+renderHist();
+}
+
+function editHist(i){
+const h=getHist();
+const x=h[i];
+histArea.value=x.area;
+histType.value=x.type;
+histText.value=x.t;
+editingIndex=i;
+histSaveBtn.textContent='Atualizar';
+}
+
+function delHist(i){
+let h=getHist();
+h.splice(i,1);
+setHist(h);
+recalcMetrics(current);
+renderHist();
+}
+
 function renderHist(){
 const h=getHist();
-histList.innerHTML=h.map((x,i)=>`<div class='history-item'><b>${x.d}</b> <span class='badge ${x.type==='pos'?'pos':'neg'}'>${x.type==='pos'?'Positivo':'Negativo'}</span><br><i>${areaName(x.area)}</i><br>${x.t}<div class='actions'><button class='btn-close' onclick='delHist(${i})'>Excluir</button></div></div>`).join('');}
-function delHist(i){const h=getHist();h.splice(i,1);setHist(h);renderHist();}
+function label(t){return {pos:'Positivo',neg:'Negativo',carta:'Carta de correção',advert:'Advertência',susp:'Suspensão',falta:'Falta'}[t];}
+
+histList.innerHTML=h.map((x,i)=>`<div class='history-item'>
+<b>${x.d}</b>
+<span class='badge ${x.type==='pos'?'pos':'neg'}'>${label(x.type)}</span>
+<br><i>${areaName(x.area)}</i>
+<br>${x.t}
+<div class='actions'>
+<button class='btn-open' onclick='editHist(${i})'>Editar</button>
+<button class='btn-close' onclick='delHist(${i})'>Excluir</button>
+</div>
+</div>`).join('');}
+
 function areaName(a){return {m1:'Atendimento',m2:'Colaboração',m3:'Responsabilidade',m4:'Conhecimento'}[a];}
 
 // EXTRA
@@ -199,5 +319,6 @@ function deleteColab(){if(!confirm('Deseja realmente excluir este colaborador?')
 
 render();
 </script>
+<div id="reportRoot" style="display:none"></div>
 </body>
 </html>
