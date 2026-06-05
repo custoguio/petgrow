@@ -25,6 +25,10 @@ button{border:none;border-radius:16px;padding:14px 18px;font-weight:700;color:#f
 .modal .box{background:#fff;border-radius:18px;max-width:520px;width:100%;padding:16px;max-height:90vh;overflow:auto}
 input,select,textarea{width:100%;padding:8px;margin-top:5px;border:2px solid #FF661A;border-radius:10px}
 .metric{margin:10px 0}
+.metric-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-weight:700;font-size:16px;color:#222}
+.metric-head .percent{font-weight:800}
+.store-card{background:#fff;border-radius:18px;padding:18px;margin-bottom:16px;box-shadow:0 4px 12px rgba(0,0,0,.06)}
+.store-title{font-size:22px;font-weight:800;color:#FC6621;margin-bottom:16px}
 .bar{height:22px;background:var(--beige);border-radius:12px;overflow:hidden}
 .fill{height:100%;border-radius:12px}
 .m1{background:#FF661A}.m2{background:#2ecc71}.m3{background:#3498db}.m4{background:#9b59b6}
@@ -163,15 +167,53 @@ nome:x.get("nome")
 render();
 }
 
-function render(){
+async function calcularMetricasLoja(){
+if(colaboradores.length===0) return {m1:50,m2:50,m3:50,m4:50};
+
+let total={m1:0,m2:0,m3:0,m4:0};
+
+for(const colab of colaboradores){
+ const m=await calcularMetricas(colab.id);
+ total.m1+=m.m1;
+ total.m2+=m.m2;
+ total.m3+=m.m3;
+ total.m4+=m.m4;
+}
+
+return {
+ m1:Math.round(total.m1/colaboradores.length),
+ m2:Math.round(total.m2/colaboradores.length),
+ m3:Math.round(total.m3/colaboradores.length),
+ m4:Math.round(total.m4/colaboradores.length)
+};
+}
+
+async function render(){
 const box=document.getElementById("cards");
 box.innerHTML="";
+
+const lojaMetrics=await calcularMetricasLoja();
+
+const lojaCard=document.createElement("div");
+lojaCard.className="store-card";
+
+lojaCard.innerHTML=`
+<div class="store-title">${document.getElementById("nomeLoja").textContent}</div>
+${Object.entries(lojaMetrics).map(([k,v],i)=>`
+<div class="metric">
+<div class="metric-head">
+<span>${["Atendimento","Colaboração","Responsabilidade","Conhecimento"][i]}</span>
+<span class="percent">${v}%</span>
+</div>
+<div class="bar"><div class="fill m${i+1}" style="width:${v}%"></div></div>
+</div>`).join("")}`;
+
+box.appendChild(lojaCard);
 
 colaboradores.forEach(c=>{
 const div=document.createElement("div");
 div.className="card";
-div.innerHTML=`
-<h3>${c.nome}</h3>
+div.innerHTML=`<h3>${c.nome}</h3>
 <div class="actions">
 <button class="btn-open">Perfil</button>
 <button class="btn-hist">Histórico</button>
@@ -180,7 +222,6 @@ div.innerHTML=`
 const [b1,b2]=div.querySelectorAll("button");
 b1.onclick=()=>openProfile(c.id);
 b2.onclick=()=>{current=c.id;openHistory();};
-
 box.appendChild(div);
 });
 }
@@ -221,7 +262,10 @@ const metrics=await calcularMetricas(id);
 
 document.getElementById("metrics").innerHTML=Object.entries(metrics).map(([k,v],i)=>`
 <div class="metric">
-<div>${["Atendimento","Colaboração","Responsabilidade","Conhecimento"][i]} - ${v}%</div>
+<div class="metric-head">
+<span>${["Atendimento","Colaboração","Responsabilidade","Conhecimento"][i]}</span>
+<span class="percent">${v}%</span>
+</div>
 <div class="bar"><div class="fill m${i+1}" style="width:${v}%"></div></div>
 </div>`).join("");
 }
